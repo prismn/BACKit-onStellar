@@ -43,3 +43,11 @@ pub fn emit_auth_params_changed(
         ),
     );
 }
+
+/// `AuctionFilled(auction_id, buyer, final_price)`.
+pub fn emit_auction_filled(env: &Env, auction_id: u64, buyer: &Address, final_price: i128) {
+    env.events().publish(
+        ("dutch_auction", "AuctionFilled"),
+        (auction_id, buyer.clone(), final_price),
+    );
+}

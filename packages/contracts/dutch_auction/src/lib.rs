@@ -2,6 +2,7 @@
 
 mod errors;
 mod events;
+pub mod sale;
 mod storage;
 mod types;
 
@@ -12,6 +13,7 @@ mod test;
 
 use errors::DutchAuctionError;
 use events::{emit_auth_params_changed, emit_dutch_auction_settled, emit_dutch_auction_started};
+use sale::{SaleAuction, SaleError};
 use soroban_sdk::{contract, contractimpl, Address, Env};
 use storage::{get_config, set_auction_info, set_config};
 use types::DutchAuctionConfig;
@@ -125,8 +127,7 @@ impl DutchAuction {
         match info.condition_type {
             1 => Ok(info.start_price * 2 * (duration as i128 - elapsed as i128) / duration as i128),
             2 => {
-                let numerator =
-                    info.start_price * (duration as i128 + 3 * elapsed as i128);
+                let numerator = info.start_price * (duration as i128 + 3 * elapsed as i128);
                 Ok(numerator / (2 * duration as i128))
             }
             _ => Err(DutchAuctionError::UnknownConditionType),
@@ -155,7 +156,71 @@ impl DutchAuction {
         config.oracle_deadline_secs = oracle_deadline_secs;
         config.settler_reward_bps = settler_reward_bps;
         set_config(&env, &config);
-        emit_auth_params_changed(&env, auction_duration_secs, oracle_deadline_secs, settler_reward_bps);
+        emit_auth_params_changed(
+            &env,
+            auction_duration_secs,
+            oracle_deadline_secs,
+            settler_reward_bps,
+        );
         Ok(())
+    }
+}
+
+#[contractimpl]
+impl DutchAuction {
+    /// Escrow `amount` of `sell_token` and start a falling-price sale paid in `pay_token`.
+    /// `curve`: 0 = linear decay, 1 = quadratic decay. Returns the auction id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_auction(
+        env: Env,
+        seller: Address,
+        sell_token: Address,
+        pay_token: Address,
+        amount: i128,
+        start_price: i128,
+        floor_price: i128,
+        duration: u64,
+        curve: u32,
+    ) -> Result<u64, SaleError> {
+        seller.require_auth();
+        sale::create(
+            &env,
+            &seller,
+            &sell_token,
+            &pay_token,
+            amount,
+            start_price,
+            floor_price,
+            duration,
+            curve,
+        )
+    }
+
+    /// Buy the lot at the exact current price; fails if it exceeds `max_price`. Emits `AuctionFilled`.
+    pub fn buy(
+        env: Env,
+        buyer: Address,
+        auction_id: u64,
+        max_price: i128,
+    ) -> Result<i128, SaleError> {
+        buyer.require_auth();
+        let price = sale::buy(&env, &buyer, auction_id, max_price)?;
+        events::emit_auction_filled(&env, auction_id, &buyer, price);
+        Ok(price)
+    }
+
+    /// Seller cancels an unsold auction and reclaims the lot.
+    pub fn cancel_auction(env: Env, auction_id: u64) -> Result<(), SaleError> {
+        sale::cancel(&env, auction_id)
+    }
+
+    /// Current price of a sale auction.
+    pub fn get_sale_price(env: Env, auction_id: u64) -> Result<i128, SaleError> {
+        let auction = sale::get_auction(&env, auction_id).ok_or(SaleError::AuctionNotFound)?;
+        sale::price_at(&auction, env.ledger().timestamp())
+    }
+
+    pub fn get_sale_auction(env: Env, auction_id: u64) -> Result<SaleAuction, SaleError> {
+        sale::get_auction(&env, auction_id).ok_or(SaleError::AuctionNotFound)
     }
 }

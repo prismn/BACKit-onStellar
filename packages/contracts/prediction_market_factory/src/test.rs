@@ -269,3 +269,38 @@ fn factory_pagination_bounds() {
     assert_eq!(setup.factory.get_all_markets(&100, &10).len(), 0);
     assert_eq!(setup.factory.get_all_markets(&3, &2).len(), 2);
 }
+
+#[test]
+fn deployed_market_address_is_deterministic_and_matches_prediction() {
+    let setup = setup_full_stack();
+    let env = &setup.env;
+    let end_ts = env.ledger().timestamp() + 3600;
+    let args = default_market_args(env, &setup.token, end_ts);
+
+    let predicted_first = setup.factory.predict_market_address(&1u64);
+    assert_eq!(predicted_first, setup.factory.predict_market_address(&1u64));
+    assert_ne!(predicted_first, setup.factory.predict_market_address(&2u64));
+
+    let first = setup.factory.deploy_market(&setup.creator, &args);
+    let second = setup.factory.deploy_market(&setup.creator, &args);
+    assert_eq!(first, predicted_first);
+    assert_eq!(second, setup.factory.predict_market_address(&2u64));
+    assert_eq!(setup.factory.get_market(&1u64), first);
+}
+
+#[test]
+fn factory_initialization_parameters_are_recorded_and_not_reinitialisable() {
+    let setup = setup_full_stack();
+    let config = setup.factory.get_config();
+    assert_eq!(config.admin, setup.admin);
+    assert!(!config.paused);
+    assert!(setup
+        .factory
+        .try_initialize(
+            &setup.admin,
+            &config.outcome_manager,
+            &config.market_wasm_hash,
+            &1i128
+        )
+        .is_err());
+}

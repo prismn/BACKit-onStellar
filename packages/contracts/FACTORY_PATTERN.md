@@ -5,20 +5,20 @@ This document compares the monolithic `call_registry` design with the
 
 ## Architecture
 
-| Component | Role |
-|-----------|------|
-| `prediction_market_factory` | Deploys market instances, tracks `call_id → Address`, emits `MarketDeployed` |
-| `prediction_market` | One market per contract: escrow, stakes, resolution hooks |
-| `outcome_manager` (shared) | Single oracle quorum layer; resolves any factory-deployed market by `call_id` |
+| Component                   | Role                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `prediction_market_factory` | Deploys market instances, tracks `call_id → Address`, emits `MarketDeployed`  |
+| `prediction_market`         | One market per contract: escrow, stakes, resolution hooks                     |
+| `outcome_manager` (shared)  | Single oracle quorum layer; resolves any factory-deployed market by `call_id` |
 
 ### Outcome manager: shared vs per-market
 
 **Chosen: single shared `outcome_manager`.**
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Shared** (implemented) | One oracle set, one admin surface, oracle votes keyed by global `call_id` | All markets share pause/upgrade risk |
-| **Per-market** | Isolated oracle config per market | N deployments, N admin keys, fragmented liquidity signals |
+| Approach                 | Pros                                                                      | Cons                                                      |
+| ------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **Shared** (implemented) | One oracle set, one admin surface, oracle votes keyed by global `call_id` | All markets share pause/upgrade risk                      |
+| **Per-market**           | Isolated oracle config per market                                         | N deployments, N admin keys, fragmented liquidity signals |
 
 The shared instance accepts any market address via `submit_outcome(registry, …)` and
 validates against the configured factory with `set_factory` + `validate_market_registry`.
@@ -35,11 +35,11 @@ ls -la target/wasm32-unknown-unknown/release/*.wasm
 
 Typical expectations (optimized with `opt-level = "z"`, LTO):
 
-| Contract | Approx. size | Notes |
-|----------|--------------|-------|
-| `call_registry` | ~80–120 KB | Governance, SEP-10, shares, indexes, pagination |
-| `prediction_market` | ~25–45 KB | Single market only; no global indexes |
-| `prediction_market_factory` | ~15–25 KB | Deploy + enumeration |
+| Contract                    | Approx. size | Notes                                           |
+| --------------------------- | ------------ | ----------------------------------------------- |
+| `call_registry`             | ~80–120 KB   | Governance, SEP-10, shares, indexes, pagination |
+| `prediction_market`         | ~25–45 KB    | Single market only; no global indexes           |
+| `prediction_market_factory` | ~15–25 KB    | Deploy + enumeration                            |
 
 The lightweight market WASM is uploaded **once**; each `deploy_market` reuses the same hash.
 
@@ -68,11 +68,11 @@ Soroban charges for:
 
 ### Rule of thumb
 
-| Scale | Prefer |
-|-------|--------|
-| &lt; 50 markets, single operator | Monolithic may be cheaper overall |
+| Scale                                       | Prefer                                     |
+| ------------------------------------------- | ------------------------------------------ |
+| &lt; 50 markets, single operator            | Monolithic may be cheaper overall          |
 | 50+ markets, public permissionless creation | Factory — isolation and TTL management win |
-| Regulated / upgradeable per product | Factory |
+| Regulated / upgradeable per product         | Factory                                    |
 
 ## Storage implications
 
@@ -139,3 +139,9 @@ Use Soroban transaction simulation (`stellar contract invoke --simulate`) for:
 - `submit_outcome` + `claim_payout` cross-contract path (3 contracts)
 
 Compare against the same flow on monolithic `call_registry` for your target `N`.
+
+## Deterministic addresses
+
+Markets are deployed with `deploy_v2` from the factory address and the salt `sha256("market:" || call_id)`.
+`predict_market_address(call_id)` returns that address without deploying, so an indexer or client can
+know where market `N` will live before (or without) calling `deploy_market`.

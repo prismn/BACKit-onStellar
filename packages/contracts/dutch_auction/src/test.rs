@@ -183,3 +183,177 @@ fn test_settle_unstarted_auction_fails() {
     }));
     assert!(result.is_err());
 }
+
+// ─── Falling-price asset sales ────────────────────────────────────────────
+
+mod sale_tests {
+    use super::*;
+    use crate::sale::{SaleError, CURVE_LINEAR, CURVE_QUADRATIC};
+    use soroban_sdk::{
+        testutils::Events as _,
+        token::{Client as TokenClient, StellarAssetClient},
+        IntoVal, TryFromVal, Val, Vec,
+    };
+
+    struct Sale<'a> {
+        env: Env,
+        client: DutchAuctionClient<'a>,
+        sell: TokenClient<'a>,
+        pay: TokenClient<'a>,
+        seller: Address,
+        buyer: Address,
+    }
+
+    fn setup_sale<'a>() -> Sale<'a> {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set(default_ledger(1_000));
+        let admin = Address::generate(&env);
+        let sell_sac = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let pay_sac = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let seller = Address::generate(&env);
+        let buyer = Address::generate(&env);
+        StellarAssetClient::new(&env, &sell_sac).mint(&seller, &500);
+        StellarAssetClient::new(&env, &pay_sac).mint(&buyer, &10_000);
+        let client = DutchAuctionClient::new(&env, &env.register(DutchAuction, ()));
+        Sale {
+            sell: TokenClient::new(&env, &sell_sac),
+            pay: TokenClient::new(&env, &pay_sac),
+            env,
+            client,
+            seller,
+            buyer,
+        }
+    }
+
+    #[test]
+    fn linear_price_decays_to_the_floor() {
+        let s = setup_sale();
+        let id = s.client.create_auction(
+            &s.seller,
+            &s.sell.address,
+            &s.pay.address,
+            &500,
+            &1_000,
+            &200,
+            &800,
+            &CURVE_LINEAR,
+        );
+        assert_eq!(s.client.get_sale_price(&id), 1_000);
+        s.env.ledger().set(default_ledger(1_200));
+        assert_eq!(s.client.get_sale_price(&id), 800); // 1000 - 800 * 200 / 800
+        s.env.ledger().set(default_ledger(1_400));
+        assert_eq!(s.client.get_sale_price(&id), 600);
+        s.env.ledger().set(default_ledger(9_999));
+        assert_eq!(s.client.get_sale_price(&id), 200);
+    }
+
+    #[test]
+    fn quadratic_price_decays_faster_early() {
+        let s = setup_sale();
+        let id = s.client.create_auction(
+            &s.seller,
+            &s.sell.address,
+            &s.pay.address,
+            &500,
+            &1_000,
+            &200,
+            &800,
+            &CURVE_QUADRATIC,
+        );
+        s.env.ledger().set(default_ledger(1_400));
+        // 200 + 800 * (400/800)^2 = 400 (linear would be 600)
+        assert_eq!(s.client.get_sale_price(&id), 400);
+    }
+
+    #[test]
+    fn buy_pays_the_exact_price_swaps_the_lot_and_emits_auction_filled() {
+        let s = setup_sale();
+        let id = s.client.create_auction(
+            &s.seller,
+            &s.sell.address,
+            &s.pay.address,
+            &500,
+            &1_000,
+            &200,
+            &800,
+            &CURVE_LINEAR,
+        );
+        s.env.ledger().set(default_ledger(1_400));
+
+        assert_eq!(
+            s.client.try_buy(&s.buyer, &id, &500),
+            Err(Ok(SaleError::PriceAboveMax))
+        );
+        assert_eq!(s.client.buy(&s.buyer, &id, &700), 600);
+        let events = s.env.events().all();
+
+        assert_eq!(s.pay.balance(&s.buyer), 10_000 - 600);
+        assert_eq!(s.pay.balance(&s.seller), 600);
+        assert_eq!(s.sell.balance(&s.buyer), 500);
+
+        let topics: Vec<Val> = ("dutch_auction", "AuctionFilled").into_val(&s.env);
+        let event = events
+            .iter()
+            .find(|(c, t, _)| *c == s.client.address && *t == topics)
+            .expect("AuctionFilled not emitted");
+        let (auction_id, buyer, price) =
+            <(u64, Address, i128)>::try_from_val(&s.env, &event.2).unwrap();
+        assert_eq!((auction_id, buyer, price), (id, s.buyer.clone(), 600));
+
+        assert_eq!(
+            s.client.try_buy(&s.buyer, &id, &700),
+            Err(Ok(SaleError::AuctionClosed))
+        );
+    }
+
+    #[test]
+    fn seller_can_cancel_an_unsold_auction() {
+        let s = setup_sale();
+        let id = s.client.create_auction(
+            &s.seller,
+            &s.sell.address,
+            &s.pay.address,
+            &500,
+            &1_000,
+            &200,
+            &800,
+            &CURVE_LINEAR,
+        );
+        assert_eq!(s.sell.balance(&s.seller), 0);
+        s.client.cancel_auction(&id);
+        assert_eq!(s.sell.balance(&s.seller), 500);
+        assert_eq!(
+            s.client.try_cancel_auction(&id),
+            Err(Ok(SaleError::AuctionClosed))
+        );
+    }
+
+    #[test]
+    fn invalid_parameters_are_rejected() {
+        let s = setup_sale();
+        for (amount, start, floor, duration) in [
+            (0, 1_000, 200, 800),
+            (500, 200, 200, 800),
+            (500, 1_000, 200, 0),
+        ] {
+            assert_eq!(
+                s.client.try_create_auction(
+                    &s.seller,
+                    &s.sell.address,
+                    &s.pay.address,
+                    &amount,
+                    &start,
+                    &floor,
+                    &duration,
+                    &CURVE_LINEAR,
+                ),
+                Err(Ok(SaleError::InvalidParams))
+            );
+        }
+    }
+}

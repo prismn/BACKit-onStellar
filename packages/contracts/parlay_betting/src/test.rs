@@ -289,17 +289,11 @@ fn three_leg_parlay_all_win() {
 
     resolve_market(&setup, call_1, OUTCOME_UP, end_ts_1);
     setup.parlay.advance_parlay(&parlay_id);
-    assert_eq!(
-        setup.parlay.get_parlay(&parlay_id).active_leg_index,
-        1
-    );
+    assert_eq!(setup.parlay.get_parlay(&parlay_id).active_leg_index, 1);
 
     resolve_market(&setup, call_2, OUTCOME_UP, end_ts_2);
     setup.parlay.advance_parlay(&parlay_id);
-    assert_eq!(
-        setup.parlay.get_parlay(&parlay_id).active_leg_index,
-        2
-    );
+    assert_eq!(setup.parlay.get_parlay(&parlay_id).active_leg_index, 2);
 
     resolve_market(&setup, call_3, OUTCOME_UP, end_ts_3);
     setup.parlay.advance_parlay(&parlay_id);
@@ -343,10 +337,7 @@ fn parlay_loses_on_leg_1() {
     assert_eq!(final_parlay.status, ParlayStatus::Lost);
     assert_eq!(final_parlay.total_escrowed, 0);
     // The initial stake was lost to the pool — no refund.
-    assert_eq!(
-        token.balance(&setup.user),
-        user_balance_before - 1_000_000
-    );
+    assert_eq!(token.balance(&setup.user), user_balance_before - 1_000_000);
 }
 
 #[test]
@@ -468,4 +459,48 @@ fn payout_calculation_accuracy() {
     let mid_parlay = setup.parlay.get_parlay(&parlay_id);
     assert_eq!(mid_parlay.status, ParlayStatus::Active);
     assert_eq!(mid_parlay.total_escrowed, 5_960_000);
+}
+
+#[test]
+fn create_parlay_rejects_duplicate_markets_and_bad_leg_counts() {
+    let setup = setup_full_stack();
+    let env = &setup.env;
+    let end_ts = env.ledger().timestamp() + 3600;
+    let (market, call_id) = deploy_market_with_counter_stake(&setup, end_ts, 3_000_000);
+
+    let leg = ParlayLeg {
+        call_id,
+        market_address: market,
+        outcome: OUTCOME_UP,
+    };
+
+    let mut duplicate = Vec::new(env);
+    duplicate.push_back(leg.clone());
+    duplicate.push_back(leg.clone());
+    assert_eq!(
+        setup
+            .parlay
+            .try_create_parlay(&setup.user, &duplicate, &1_000_000),
+        Err(Ok(crate::errors::ParlayError::DuplicateMarket))
+    );
+
+    let mut single = Vec::new(env);
+    single.push_back(leg.clone());
+    assert_eq!(
+        setup
+            .parlay
+            .try_create_parlay(&setup.user, &single, &1_000_000),
+        Err(Ok(crate::errors::ParlayError::InvalidLegCount))
+    );
+
+    let mut eleven = Vec::new(env);
+    for _ in 0..11 {
+        eleven.push_back(leg.clone());
+    }
+    assert_eq!(
+        setup
+            .parlay
+            .try_create_parlay(&setup.user, &eleven, &1_000_000),
+        Err(Ok(crate::errors::ParlayError::InvalidLegCount))
+    );
 }

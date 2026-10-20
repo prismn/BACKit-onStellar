@@ -210,8 +210,13 @@ fn transfer_token(env: &Env, token_address: &Address, from: &Address, to: &Addre
     }
 }
 
+pub mod margin;
+
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod margin_test;
 
 #[contract]
 pub struct PredictionMarketFutures;
@@ -505,6 +510,53 @@ impl PredictionMarketFutures {
         contract_id: u64,
     ) -> Result<FuturesPosition, FuturesError> {
         get_futures_position(&env, contract_id).ok_or(FuturesError::ContractNotFound)
+    }
+
+    /// Sets the mark price used for margin positions on `market_id` (factory only).
+    pub fn set_mark_price(
+        env: Env,
+        market_id: u64,
+        price: i128,
+    ) -> Result<(), margin::MarginError> {
+        let factory = get_futures_factory(&env).ok_or(margin::MarginError::NotInitialized)?;
+        factory.require_auth();
+        if price <= 0 {
+            return Err(margin::MarginError::InvalidPrice);
+        }
+        margin::set_mark_price(&env, market_id, price);
+        Ok(())
+    }
+
+    /// Opens a leveraged position: locks `ceil(size / leverage)` margin from `user` at the current mark price.
+    pub fn open_position(
+        env: Env,
+        user: Address,
+        market_id: u64,
+        token: Address,
+        size: i128,
+        leverage: u32,
+        is_long: bool,
+    ) -> Result<u64, margin::MarginError> {
+        user.require_auth();
+        margin::open(&env, &user, market_id, &token, size, leverage, is_long)
+    }
+
+    /// Liquidates a position whose mark price crossed its liquidation price; returns the liquidator bounty.
+    pub fn liquidate(
+        env: Env,
+        liquidator: Address,
+        position_id: u64,
+    ) -> Result<i128, margin::MarginError> {
+        liquidator.require_auth();
+        margin::liquidate(&env, &liquidator, position_id)
+    }
+
+    /// View a margin position.
+    pub fn get_margin_position(
+        env: Env,
+        position_id: u64,
+    ) -> Result<margin::MarginPosition, margin::MarginError> {
+        margin::get_position(&env, position_id).ok_or(margin::MarginError::PositionNotFound)
     }
 
     /// View function returning the configured factory address.

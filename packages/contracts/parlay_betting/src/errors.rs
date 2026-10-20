@@ -14,4 +14,6 @@ pub enum ParlayError {
     LegNotResolved = 8,
     MarketCallFailed = 9,
     ContractPaused = 10,
+    /// Two legs reference the same market.
+    DuplicateMarket = 11,
 }

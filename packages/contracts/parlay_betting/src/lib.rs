@@ -82,7 +82,11 @@ pub struct ParlayBetting;
 
 #[contractimpl]
 impl ParlayBetting {
-    pub fn initialize(env: Env, admin: Address, outcome_manager: Address) -> Result<(), ParlayError> {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        outcome_manager: Address,
+    ) -> Result<(), ParlayError> {
         if get_config(&env).is_some() {
             return Err(ParlayError::AlreadyInitialized);
         }
@@ -114,6 +118,14 @@ impl ParlayBetting {
         }
         if initial_stake <= 0 {
             return Err(ParlayError::InvalidStakeAmount);
+        }
+        for i in 0..legs.len() {
+            let market = legs.get(i).unwrap().market_address;
+            for j in (i + 1)..legs.len() {
+                if legs.get(j).unwrap().market_address == market {
+                    return Err(ParlayError::DuplicateMarket);
+                }
+            }
         }
 
         let first_leg = legs.get(0).unwrap();

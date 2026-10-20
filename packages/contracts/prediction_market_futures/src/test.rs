@@ -2,13 +2,8 @@
 
 extern crate std;
 
-use crate::{
-    FuturesError, FuturesStatus, PredictionMarketFutures, PredictionMarketFuturesClient,
-};
-use prediction_market::{
-    ConditionType, MarketInitArgs,
-    PredictionMarket, PredictionMarketClient,
-};
+use crate::{FuturesError, FuturesStatus, PredictionMarketFutures, PredictionMarketFuturesClient};
+use prediction_market::{ConditionType, MarketInitArgs, PredictionMarket, PredictionMarketClient};
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger as _},
@@ -153,7 +148,10 @@ fn test_create_and_accept_futures() {
     assert_eq!(contract_id, 1);
 
     // Verify creator margin locked
-    assert_eq!(setup.token_client.balance(&setup.creator), 1_000_000 - margin);
+    assert_eq!(
+        setup.token_client.balance(&setup.creator),
+        1_000_000 - margin
+    );
     assert_eq!(setup.token_client.balance(&setup.futures_id), margin);
 
     let position = setup.futures_client.get_futures_position(&contract_id);
@@ -164,10 +162,15 @@ fn test_create_and_accept_futures() {
     assert!(matches!(position.status, FuturesStatus::Pending));
 
     // Accept by counterparty
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     // Verify counterparty margin locked
-    assert_eq!(setup.token_client.balance(&setup.counterparty), 1_000_000 - margin);
+    assert_eq!(
+        setup.token_client.balance(&setup.counterparty),
+        1_000_000 - margin
+    );
     assert_eq!(setup.token_client.balance(&setup.futures_id), margin * 2);
 
     let position = setup.futures_client.get_futures_position(&contract_id);
@@ -192,14 +195,20 @@ fn test_buyer_wins() {
         &expiry_ts,
         &margin,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     // Odds move in creator (buyer)'s favor: stake more on outcome 1
     // Outcome 1: 5,000 + 15_000 = 20_000. Outcome 2: 5,000. Total: 25_000
     // Implied: 20_000 * 10_000 / 25_000 = 8_000 bps (80%)
     let extra_staker = Address::generate(&env);
-    setup.token_client.transfer(&setup.admin, &extra_staker, &15_000);
-    setup.market_client.stake_on_call(&extra_staker, &setup.call_id, &15_000, &1u32);
+    setup
+        .token_client
+        .transfer(&setup.admin, &extra_staker, &15_000);
+    setup
+        .market_client
+        .stake_on_call(&extra_staker, &setup.call_id, &15_000, &1u32);
 
     // Advance time to expiry
     env.ledger().set_timestamp(expiry_ts + 1);
@@ -214,8 +223,14 @@ fn test_buyer_wins() {
     // payout_delta = margin * 3_000 / 10_000 = 10_000 * 3_000 / 10_000 = 3_000
     // buyer_payout = margin + 3_000 = 13_000
     // seller_payout = margin - 3_000 = 7_000
-    assert_eq!(setup.token_client.balance(&setup.creator), 1_000_000 - margin + 13_000);
-    assert_eq!(setup.token_client.balance(&setup.counterparty), 1_000_000 - margin + 7_000);
+    assert_eq!(
+        setup.token_client.balance(&setup.creator),
+        1_000_000 - margin + 13_000
+    );
+    assert_eq!(
+        setup.token_client.balance(&setup.counterparty),
+        1_000_000 - margin + 7_000
+    );
     assert_eq!(setup.token_client.balance(&setup.futures_id), 0);
 
     let position = setup.futures_client.get_futures_position(&contract_id);
@@ -240,14 +255,20 @@ fn test_seller_wins() {
         &expiry_ts,
         &margin,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     // Odds move against creator (seller wins): stake more on outcome 2
     // Outcome 1: 5,000. Outcome 2: 5,000 + 15_000 = 20_000. Total: 25_000
     // Implied Outcome 1: 5_000 * 10_000 / 25_000 = 2_000 bps (20%)
     let extra_staker = Address::generate(&env);
-    setup.token_client.transfer(&setup.admin, &extra_staker, &15_000);
-    setup.market_client.stake_on_call(&extra_staker, &setup.call_id, &15_000, &2u32);
+    setup
+        .token_client
+        .transfer(&setup.admin, &extra_staker, &15_000);
+    setup
+        .market_client
+        .stake_on_call(&extra_staker, &setup.call_id, &15_000, &2u32);
 
     // Advance time to expiry
     env.ledger().set_timestamp(expiry_ts + 1);
@@ -262,8 +283,14 @@ fn test_seller_wins() {
     // payout_delta = margin * 3_000 / 10_000 = 10_000 * 3_000 / 10_000 = 3_000
     // seller_payout = margin + 3_000 = 13_000
     // buyer_payout = margin - 3_000 = 7_000
-    assert_eq!(setup.token_client.balance(&setup.creator), 1_000_000 - margin + 7_000);
-    assert_eq!(setup.token_client.balance(&setup.counterparty), 1_000_000 - margin + 13_000);
+    assert_eq!(
+        setup.token_client.balance(&setup.creator),
+        1_000_000 - margin + 7_000
+    );
+    assert_eq!(
+        setup.token_client.balance(&setup.counterparty),
+        1_000_000 - margin + 13_000
+    );
     assert_eq!(setup.token_client.balance(&setup.futures_id), 0);
 
     let position = setup.futures_client.get_futures_position(&contract_id);
@@ -285,7 +312,9 @@ fn test_exact_expiry_and_premature_settlement() {
         &expiry_ts,
         &margin,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     // Attempt premature settlement (must fail)
     let result = setup.futures_client.try_settle_futures(&contract_id);
@@ -312,7 +341,9 @@ fn test_zero_delta_settlement() {
         &expiry_ts,
         &margin,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     env.ledger().set_timestamp(expiry_ts);
     setup.futures_client.settle_futures(&contract_id);
@@ -339,7 +370,9 @@ fn test_margin_cap_logic() {
         &expiry_ts,
         &margin,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     // Extreme shift: Outcome 1: 1,000 + 99_000 = 100_000. Outcome 2: 9_000. Total: 109_000
     // Implied Outcome 1: 100_000 * 10_000 / 109_000 = 9_174 bps (91.74%)
@@ -350,8 +383,12 @@ fn test_margin_cap_logic() {
     // Let's stake a massive amount on outcome 1: 9_999_000
     // Total stake = 10,000,000. Outcome 1 stake = 1,000 + 9_999_000 = 10,000,000 (effectively 100% implied bps).
     let extra_staker = Address::generate(&env);
-    setup.token_client.transfer(&setup.admin, &extra_staker, &10_000_000);
-    setup.market_client.stake_on_call(&extra_staker, &setup.call_id, &9_999_000, &1u32);
+    setup
+        .token_client
+        .transfer(&setup.admin, &extra_staker, &10_000_000);
+    setup
+        .market_client
+        .stake_on_call(&extra_staker, &setup.call_id, &9_999_000, &1u32);
 
     env.ledger().set_timestamp(expiry_ts);
     setup.futures_client.settle_futures(&contract_id);
@@ -366,8 +403,14 @@ fn test_margin_cap_logic() {
     // If margin is 5,000, diff = 9,000 => payout_delta = 5,000 * 9,000 / 10_000 = 4,500.
     // Let's verify that the payout delta is capped at `margin` (i.e. seller gets 0, buyer gets 2 * margin).
     // In our test, margin is 10,000. payout_delta is 8,991, which is < margin. So buyer gets 18,991, seller gets 1,009.
-    assert_eq!(setup.token_client.balance(&setup.creator), 1_000_000 - margin + 18_991);
-    assert_eq!(setup.token_client.balance(&setup.counterparty), 1_000_000 - margin + 1_009);
+    assert_eq!(
+        setup.token_client.balance(&setup.creator),
+        1_000_000 - margin + 18_991
+    );
+    assert_eq!(
+        setup.token_client.balance(&setup.counterparty),
+        1_000_000 - margin + 1_009
+    );
 
     // Let's do another check with strike = 1000 and current = 0 (Outcome 2 becomes 100% implied bps)
     // To do this, let's create another contract with a margin of 500 and a future expiry timestamp.
@@ -381,23 +424,33 @@ fn test_margin_cap_logic() {
         &expiry_ts_2,
         &margin_2,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id_2);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id_2);
 
     let balance_creator_before_settle_2 = setup.token_client.balance(&setup.creator);
     let balance_counterparty_before_settle_2 = setup.token_client.balance(&setup.counterparty);
 
     // Stake heavily on Outcome 2 to push Outcome 1 implied bps to effectively 0
     let extra_staker_2 = Address::generate(&env);
-    setup.token_client.transfer(&setup.admin, &extra_staker_2, &10_000_000);
-    setup.market_client.stake_on_call(&extra_staker_2, &setup.call_id, &10_000_000, &2u32);
+    setup
+        .token_client
+        .transfer(&setup.admin, &extra_staker_2, &10_000_000);
+    setup
+        .market_client
+        .stake_on_call(&extra_staker_2, &setup.call_id, &10_000_000, &2u32);
 
     // Total stake = 10,009_000 + 10,000_000 = 20_009_000
     // Outcome 1 stake = 10,000_000
     // Implied Outcome 1 bps = 10,000_000 * 10,000 / 20_009_000 = 4_997 bps (49.97%)
     // Let's stake 1,000,000,000 on Outcome 2 to make it extremely large.
     let massive_staker = Address::generate(&env);
-    setup.token_client.transfer(&setup.admin, &massive_staker, &1_000_000_000);
-    setup.market_client.stake_on_call(&massive_staker, &setup.call_id, &1_000_000_000, &2u32);
+    setup
+        .token_client
+        .transfer(&setup.admin, &massive_staker, &1_000_000_000);
+    setup
+        .market_client
+        .stake_on_call(&massive_staker, &setup.call_id, &1_000_000_000, &2u32);
 
     // Now total stake is ~1,020,000,000. Outcome 1 is 10,000,000 => implied outcome 1 is ~98 bps.
     // Strike is 1,000. Diff = 1,000 - 98 = 902.
@@ -407,8 +460,14 @@ fn test_margin_cap_logic() {
 
     // Seller (counterparty) receives margin_2 + payout_delta = 500 + 45 = 545
     // Buyer (creator) receives margin_2 - payout_delta = 500 - 45 = 455
-    assert_eq!(setup.token_client.balance(&setup.creator), balance_creator_before_settle_2 + 455);
-    assert_eq!(setup.token_client.balance(&setup.counterparty), balance_counterparty_before_settle_2 + 545);
+    assert_eq!(
+        setup.token_client.balance(&setup.creator),
+        balance_creator_before_settle_2 + 455
+    );
+    assert_eq!(
+        setup.token_client.balance(&setup.counterparty),
+        balance_counterparty_before_settle_2 + 545
+    );
 }
 
 #[test]
@@ -426,16 +485,22 @@ fn test_trading_and_transfer() {
         &expiry_ts,
         &margin,
     );
-    setup.futures_client.accept_futures_counterparty(&setup.counterparty, &contract_id);
+    setup
+        .futures_client
+        .accept_futures_counterparty(&setup.counterparty, &contract_id);
 
     let new_long = Address::generate(&env);
     let new_short = Address::generate(&env);
 
     // Transfer long position
-    setup.futures_client.transfer_long_position(&contract_id, &new_long);
+    setup
+        .futures_client
+        .transfer_long_position(&contract_id, &new_long);
 
     // Transfer short position
-    setup.futures_client.transfer_short_position(&contract_id, &new_short);
+    setup
+        .futures_client
+        .transfer_short_position(&contract_id, &new_short);
 
     let position = setup.futures_client.get_futures_position(&contract_id);
     assert_eq!(position.creator, new_long);
